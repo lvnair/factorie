@@ -56,7 +56,7 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
   def nameDocumentMap: scala.collection.Map[String,Doc] = documentMap
   /** The per-topic distribution over words.  FiniteMixture is a Seq of Dirichlet-distributed Proportions. */
   val phis = Mixture(numTopics)(ProportionsVariable.growableDense(wordDomain) ~ Dirichlet(betas))
-  
+
   protected def setupDocument(doc:Doc, m:MutableDirectedModel, random: scala.util.Random): Unit = {
     implicit val rng = random
     require(wordSeqDomain eq doc.ws.domain)
@@ -125,7 +125,8 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
       if (i % diagnosticInterval == 0) {
         println ("\n"+diagnosticName+"\nIteration "+i)
         sampler.export(phis)
-        if (diagnosticShowPhrases) println(topicsWordsAndPhrasesSummary(10,10)) else println(topicsSummary(10))
+        if (diagnosticShowPhrases) println(topicsWordsAndPhrasesSummary(10,10)) else println(topicsSummary(20))
+        topictermcount(1)
       }
       /*if (i % fitAlphaInterval == 0) {
         sampler.exportThetas(documents)
@@ -190,6 +191,8 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
             for (threadID <- 0 until numThreads) samplersArray(threadID).localPhiCounts(w).forCounts((t, c) => phiCounts(w).incrementCountAtIndex(t, c))
         })
 
+        // Print topic sizes here.
+
         //Copy global counts to per thread counts
         util.Threading.parForeach(0 until numThreads, pool) (threadID => {
           System.arraycopy(phiCounts.mixtureCounts, 0, phiCountsArray(threadID).mixtureCounts, 0, numTopics)
@@ -200,7 +203,9 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
         if (iteration % diagnosticInterval == 0) {
           println ("Iteration "+iteration)
           maximizePhisAndThetas
-          if (diagnosticShowPhrases) println(topicsWordsAndPhrasesSummary(10,10)) else println(topicsSummary(10))
+
+          if (diagnosticShowPhrases) println(topicsWordsAndPhrasesSummary(10,10)) else println(topicsSummary(20))
+
         }
 
         val timeSecs = (System.currentTimeMillis - startIterationTime)/1000.0
@@ -209,10 +214,29 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
     } finally pool.shutdown()
     maximizePhisAndThetas
   }
-  
+  def topictermcount(topicIndex:Int):Int={
+    var count = 0;
+    for(doc <- documents){
+         //println(doc.ws.categoryValues)
+
+         val len = doc.ws.categoryValues.length
+         //println("total no of terms in a document "+doc.ws.categoryValues.length)
+         var i=0
+         while (i < len) {
+           val zi = doc.zs.intValue(i)
+           i=i+1
+           //println(zi +"for term "+i)
+           if(zi==topicIndex){
+             count = count+1
+           }
+         }
+
+    }
+  count
+  }
   def topicWords(topicIndex:Int, numWords:Int = 10): Seq[String] = phis(topicIndex).value.top(numWords).map(dp => wordDomain.category(dp.index))
   def topicWordsArray(topicIndex:Int, numWords:Int): Array[String] = topicWords(topicIndex, numWords).toArray
-  def topicSummary(topicIndex:Int, numWords:Int = 10): String = "Topic %3d %s  %d  %f".format(topicIndex, topicWords(topicIndex, numWords).mkString(" "), phis(topicIndex).value.massTotal.toInt, alphas.value(topicIndex))
+  def topicSummary(topicIndex:Int, numWords:Int = 10): String = "Topic %3d %s  %d  %f %d".format(topicIndex, topicWords(topicIndex, numWords).mkString(" "), phis(topicIndex).value.massTotal.toInt, alphas.value(topicIndex),topictermcount(topicIndex))
   def topicsSummary(numWords:Int = 10): String = Range(0, numTopics).map(topicSummary(_, numWords)).mkString("\n")
 
   def topicsPhraseCounts = new TopicPhraseCounts(numTopics) ++= documents
@@ -417,13 +441,15 @@ class LDACmd {
     }
     else if (lda.documents.size == 0) { System.err.println("You must specific either the --input-dirs or --input-lines options to provide documents."); System.exit(-1) }
     println("\nRead "+lda.documents.size+" documents, "+WordSeqDomain.elementDomain.size+" word types, "+lda.documents.map(_.ws.length).sum+" word tokens.")
-    
+    println(opts.numThreads.value)
     // Run inference to discover topics
     if (opts.numIterations.value > 0) {
       val startTime = System.currentTimeMillis
-      if (opts.numThreads.value > 1) 
+      if (opts.numThreads.value > 1)
        lda.inferTopicsMultithreaded(opts.numThreads.value, opts.numIterations.value, diagnosticInterval = opts.diagnostic.value, diagnosticShowPhrases = opts.diagnosticPhrases.value) 
-      else 
+
+
+        else
         lda.inferTopics(opts.numIterations.value, fitAlphaInterval = opts.fitAlpha.value, diagnosticInterval = opts.diagnostic.value, diagnosticShowPhrases = opts.diagnosticPhrases.value)
       println("Finished in " + ((System.currentTimeMillis - startTime) / 1000.0) + " seconds")
   	}	
