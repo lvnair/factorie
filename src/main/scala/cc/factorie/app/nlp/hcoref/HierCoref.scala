@@ -305,7 +305,7 @@ abstract class HierCorefSampler[T<:HierEntity](model:Model) extends SettingsSamp
     }
   }
   /**Identify entities that are created by accepted jumps so we can add them to our master entity list.*/
-  override def proposalHook(proposal:Proposal) = {
+  override def proposalHook(proposal:Proposal[Null]) = {
     super.proposalHook(proposal)
     val newEntities = new HashSet[T]
     for(diff<-proposal.diff){
@@ -653,12 +653,12 @@ class BagOfWordsVariable(initialWords:Iterable[String]=Nil,initialMap:Map[String
   type Value = SparseBagOfWords
   def value = _members
   def clear() = _members.clear
-  private val _members:SparseBagOfWords = {
+  protected val _members:SparseBagOfWords = {
     val result = new SparseBagOfWords(initialWords)
     if(initialMap!=null)for((k,v) <- initialMap)result += (k,v)
+    result.variable = this
     result
   }
-  _members.variable = this
   def members: SparseBagOfWords = _members
   def iterator = _members.iterator
   override def size = _members.size

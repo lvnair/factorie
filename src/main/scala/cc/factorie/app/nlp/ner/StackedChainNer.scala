@@ -179,7 +179,7 @@ class StackedChainNer[L<:NerTag](labelDomain: CategoricalDomain[String],
 
   def serialize(stream: OutputStream) {
     import cc.factorie.util.CubbieConversions._
-    val is = new DataOutputStream(stream)
+    val is = new DataOutputStream(new BufferedOutputStream(stream))
     BinarySerializer.serialize(ChainNerFeaturesDomain.dimensionDomain, is)
     BinarySerializer.serialize(ChainNer2FeaturesDomain.dimensionDomain, is)
     BinarySerializer.serialize(NERModelOpts.argsList, is)
@@ -190,7 +190,7 @@ class StackedChainNer[L<:NerTag](labelDomain: CategoricalDomain[String],
 
   def deSerialize(stream: InputStream) {
     import cc.factorie.util.CubbieConversions._
-    val is = new DataInputStream(stream)
+    val is = new DataInputStream(new BufferedInputStream(stream))
     BinarySerializer.deserialize(ChainNerFeaturesDomain.dimensionDomain, is)
     BinarySerializer.deserialize(ChainNer2FeaturesDomain.dimensionDomain, is)
     BinarySerializer.deserialize(NERModelOpts.argsList, is)
@@ -571,7 +571,7 @@ class ConllStackedChainNer(embeddingMap: SkipGramEmbedding,
     if (document.tokenCount > 0) {
       val doc = super.process(document)
       // Add and populated NerSpanList attr to the document 
-      doc.attr.+=(new ner.ConllNerSpanList ++= document.sections.flatMap(section => BilouConllNerDomain.spanList(section)))
+      doc.attr.+=(new ner.ConllNerSpanBuffer ++= document.sections.flatMap(section => BilouConllNerDomain.spanList(section)))
       doc
     } else document
   }
@@ -658,7 +658,7 @@ object ConllStackedChainNerOptimizer {
         "cc.factorie.app.nlp.parse.DepParser2",
         10, 5)
         */
-      val qs = new cc.factorie.util.QSubExecutor(60, "cc.factorie.app.nlp.ner.StackedNERTrainer")
+      val qs = new cc.factorie.util.QSubExecutor(60, "cc.factorie.app.nlp.ner.ConllStackedChainNerTrainer")
       val optimizer = new cc.factorie.util.HyperParameterSearcher(opts, Seq(rate, delta), qs.execute, 200, 180, 60)
       val result = optimizer.optimize()
       println("Got results: " + result.mkString(" "))

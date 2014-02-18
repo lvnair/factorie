@@ -9,6 +9,7 @@ import org.junit.Test
 import cc.factorie.variable._
 import cc.factorie.model._
 import cc.factorie.infer._
+import cc.factorie.optimize.LikelihoodExample
 
 /**
  * Test for the factorie-1.0 BP framework (that uses WeightsMap)
@@ -197,6 +198,13 @@ class TestBP extends util.FastLogging { //}extends FunSuite with BeforeAndAfter 
     val loopyLogZ = InferByBPLoopyTreewise.infer(Seq(l0, l1, l2, l3), model).logZ
     assertEquals(trueLogZ, loopyLogZ, 0.01)
 
+    val ex = new model.ChainLikelihoodExample(Seq(l0, l1, l2, l3))
+    assert(optimize.Example.testGradient(model.parameters, ex))
+    val ex2 = new LikelihoodExample(Seq(l0, l1, l2, l3), model, InferByBPChain)
+    assert(optimize.Example.testGradient(model.parameters, ex2))
+    val ex3 = new LikelihoodExample(Seq(l0, l1, l2, l3), model, InferByBPTree)
+    assert(optimize.Example.testGradient(model.parameters, ex3))
+
     val fastSum = model.inferFast(Seq(l0, l1, l2, l3))
     val sum = InferByBPChain.infer(Seq(l0, l1, l2, l3), model)
     assertEquals(sum.logZ, fastSum.logZ, 0.001)
@@ -218,7 +226,7 @@ class TestBP extends util.FastLogging { //}extends FunSuite with BeforeAndAfter 
     }
 
     // Testing MPLP
-    val mplpSummary = InferByMPLP.infer(Seq(l0, l1, l2, l3), model)
+    val mplpSummary = MaximizeByMPLP.infer(Seq(l0, l1, l2, l3), model)
     val mapSummary = MaximizeByBPChain.infer(Seq(l0, l1, l2, l3), model)
     for (v <- Seq(l0, l1, l2, l3)) {
       val mfm = mplpSummary.mapAssignment(v)

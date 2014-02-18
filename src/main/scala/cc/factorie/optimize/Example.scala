@@ -6,6 +6,7 @@ import cc.factorie.la._
 import cc.factorie.model._
 import cc.factorie.infer.{FactorMarginal, Maximize, Infer}
 import cc.factorie.variable._
+import cc.factorie.app.classify.backend.{OptimizablePredictor, Classifier}
 
 /**
  * Created by IntelliJ IDEA.
@@ -20,9 +21,65 @@ import cc.factorie.variable._
  * which are accumulated into accumulators and then given to the optimizer.
  */
 trait Example {
-  // gradient or value can be null if they don't need to be computed.
-  // TODO should this be called (compute|accumulate)ValueAndGradient or something? -luke
+  /**
+   * Put objective value and gradient into the accumulators.
+   * Either argument can be null if they don't need to be computed.
+   * @param value Accumulator to hold value
+   * @param gradient Accumulator to hold gradient
+   */
   def accumulateValueAndGradient(value: DoubleAccumulator, gradient: WeightsMapAccumulator): Unit
+}
+
+object Example {
+  def testGradient(parameters: WeightsSet, example: Example, epsilon: Double = 1e-6, lipschitz: Double = 10, verbose: Boolean = false, returnOnFirstError: Boolean = true): Boolean = {
+    val g = parameters.blankSparseMap
+    val acc = new LocalWeightsMapAccumulator(g)
+    val value = new LocalDoubleAccumulator()
+    example.accumulateValueAndGradient(value, acc)
+    var correct = true
+    for (k <- parameters.keys) {
+      for (i <- 0 until k.value.length) {
+        val value2 = new LocalDoubleAccumulator()
+        k.value(i) += epsilon
+        example.accumulateValueAndGradient(value2, null)
+        k.value(i) -= epsilon
+        val grad = value2.value - value.value
+        val computedGrad = g(k)(i)
+        val m = math.max(math.abs(grad), math.abs(computedGrad))
+        if (math.abs(computedGrad - grad) > lipschitz*m) {
+          correct = false
+          if (verbose) System.err.println(s"Error in gradient for key $k coordinate $i, expected $computedGrad obtained $grad")
+          if (returnOnFirstError) return correct
+        }
+      }
+    }
+    correct
+  }
+
+  def sparseTestGradient(parameters: WeightsSet, example: Example, epsilon: Double = 1e-6, lipschitz: Double = 10, verbose: Boolean = false, returnOnFirstError: Boolean = true): Boolean = {
+    val g = parameters.blankSparseMap
+    val acc = new LocalWeightsMapAccumulator(g)
+    val value = new LocalDoubleAccumulator()
+    example.accumulateValueAndGradient(value, acc)
+    var correct = true
+    for (k <- parameters.keys) {
+      g(k).foreachActiveElement((i, _) => {
+        val value2 = new LocalDoubleAccumulator()
+        k.value(i) += epsilon
+        example.accumulateValueAndGradient(value2, null)
+        k.value(i) -= epsilon
+        val grad = value2.value - value.value
+        val computedGrad = g(k)(i)
+        val m = math.max(math.abs(grad), math.abs(computedGrad))
+        if (math.abs(computedGrad - grad) > lipschitz*m) {
+          correct = false
+          if (verbose) System.err.println(s"Error in gradient for key $k coordinate $i, expected $computedGrad obtained $grad")
+          if (returnOnFirstError) return correct
+        }
+      })
+    }
+    correct
+  }
 }
 
 /**
@@ -380,67 +437,37 @@ class SemiSupervisedLikelihoodExample[A<:Iterable[Var],B<:Model](labels: A, mode
 }
 
 
-/**
- * Base example for all linear multivariate models
- * @param weights The weights of the classifier
- * @param featureVector The feature vector
- * @param label The label
- * @param objective The objective function
- * @param weight The weight of this example
- * @tparam Label The type of the label
- */
-class LinearMultivariateExample[Label](weights: Weights2, featureVector: Tensor1, label: Label, objective: MultivariateLinearObjective[Label], weight: Double = 1.0)
-  extends Example {
-  def accumulateValueAndGradient(value: DoubleAccumulator, gradient: WeightsMapAccumulator) {
-    val prediction = weights.value.leftMultiply(featureVector)
-    val (obj, sgrad) = objective.valueAndGradient(prediction, label)
-    if (value != null) value.accumulate(obj)
-    if (gradient != null && !sgrad.isInstanceOf[UniformTensor]) gradient.accumulate(weights, featureVector outer sgrad, weight)
+class SimpleLikelihoodExample[A<:Iterable[Var],B<:Model](labels: A, model: B, infer: Infer[A,B]) extends Example {
+  def accumulateValueAndGradient(value: DoubleAccumulator, gradient: WeightsMapAccumulator): Unit = {
+    val summary = infer.infer(labels, model)
+    if (value != null)
+      value.accumulate(model.assignmentScore(labels, TargetAssignment) - summary.logZ)
+    val factors = summary.factorMarginals
+    if (gradient != null) {
+      for (factorMarginal <- factors; factorU <- factorMarginal.factor; if factorU.isInstanceOf[DotFamily#Factor]; factor <- factorU.asInstanceOf[DotFamily#Factor]) {
+        gradient.accumulate(factor.family.weights, factor.assignmentStatistics(TargetAssignment), 1.0)
+        gradient.accumulate(factor.family.weights, summary.marginal(factor).tensorStatistics, -1.0)
+      }
+    }
   }
 }
 
 /**
- * Example for all linear multiclass classifiers
- * @param weights The weights of the classifier
- * @param featureVector The feature vector
+ * Base example for all OptimizablePredictors
+ * @param model The optimizable predictor
+ * @param input The example input (such as a feature vector)
  * @param label The label
  * @param objective The objective function
- * @param weight The weight of this example
+ * @param weight The weight of the example
+ * @tparam Output The type of the label
  */
-class LinearMulticlassExample(weights: Weights2, featureVector: Tensor1, label: Int, objective: LinearObjectives.Multiclass, weight: Double = 1.0)
-  extends LinearMultivariateExample(weights, featureVector, label, objective, weight) {
-  assert(label >= 0, "Label must be nonnegative for LinearMultiClassExample. Instead got: " + label)
-}
-
-/**
- * Base example for linear univariate models
- * @param weights The weights of the classifier
- * @param featureVector The feature vector
- * @param label The label
- * @param objective The objective
- * @param weight The weight of this example
- * @tparam Label The type of label
- */
-class LinearUnivariateExample[Label](weights: Weights1, featureVector: Tensor1, label: Label, objective: UnivariateLinearObjective[Label], weight: Double = 1.0)
+class PredictorExample[Output, Prediction, Input](model: OptimizablePredictor[Prediction, Input], input: Input, label: Output, objective: OptimizableObjective[Prediction, Output], weight: Double = 1.0)
   extends Example {
   def accumulateValueAndGradient(value: DoubleAccumulator, gradient: WeightsMapAccumulator) {
-    val score = weights.value dot featureVector
-    val (obj, sgrad) = objective.valueAndGradient(score, label)
-    if (value != null) value.accumulate(obj)
-    if (gradient != null) gradient.accumulate(weights, featureVector.copy, weight * sgrad)
+    val prediction = model.predict(input)
+    val (obj, ograd) = objective.valueAndGradient(prediction, label)
+    if (value != null) value.accumulate(obj * weight)
+    if (gradient != null) model.accumulateObjectiveGradient(gradient, input, ograd, weight)
   }
-}
-
-/**
- * Base example for linear binary classifiers
- * @param weights The weights of the classifier
- * @param featureVector The feature vector
- * @param label The label (+1 or -1)
- * @param objective The objective function
- * @param weight The weight of this example
- */
-class LinearBinaryExample(weights: Weights1, featureVector: Tensor1, label: Int, objective: LinearObjectives.Binary, weight: Double = 1.0)
-  extends LinearUnivariateExample(weights, featureVector, label, objective, weight) {
-  assert(label == 1 || label == -1, "Label must be -1 or 1 for LinearBinaryExample. Instead got: " + label)
 }
 

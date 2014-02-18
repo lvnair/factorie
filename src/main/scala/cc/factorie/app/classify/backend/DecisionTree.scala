@@ -21,16 +21,7 @@ class DecisionTreeMulticlassTrainer[Label](treeTrainer: DecisionTreeTrainer = ne
     classifier.tree = dtree
     evaluate(classifier)
   }
-
-  def simpleTrain(labelSize: Int, featureSize: Int, labels: Seq[Int], features: Seq[Tensor1], weights: Seq[Double], evaluate: DecisionTreeMulticlassClassifier => Unit): DecisionTreeMulticlassClassifier = {
-    val instances = features.zip(labels.map(new SingletonBinaryTensor1(labelSize, _))).zip(weights).map({
-      case ((feat, label), weight) => DecisionTreeTrainer.Instance(feat, label, weight)
-    })
-    val dtree = treeTrainer.train(instances)
-    val classifier = new DecisionTreeMulticlassClassifier(dtree, labelSize)
-    evaluate(classifier)
-    classifier
-  }
+  def newModel(featureSize: Int, labelSize: Int) = new DecisionTreeMulticlassClassifier(null, labelSize)
 }
 
 // TODO this threading stuff makes it non-deterministic, fix -luke
@@ -52,24 +43,12 @@ class RandomForestMulticlassTrainer(numTrees: Int, numFeaturesToUse: Int, numIns
     evaluate(classifier)
   }
 
-  def simpleTrain(labelSize: Int, featureSize: Int, labels: Seq[Int], features: Seq[Tensor1], weights: Seq[Double], evaluate: RandomForestMulticlassClassifier => Unit): RandomForestMulticlassClassifier = {
-    val instances = features.zip(labels.map(new SingletonBinaryTensor1(labelSize, _))).zip(weights).map({
-      case ((feat, label), weight) => DecisionTreeTrainer.Instance(feat, label, weight)
-    })
-    val trees = util.Threading.parMap(0 until numTrees, numThreads)(_ => {
-      val bootstrap = (0 until numInstancesToSample).map(_ => instances(random.nextInt(instances.length)))
-      treeTrainer.maxDepth = maxDepth // TODO ugh but otherwise we can't override it in the trait - just use maxdepth stopping like before -luke
-      treeTrainer.train(bootstrap, numFeaturesToUse = numFeaturesToUse)
-    })
-    val classifier = new RandomForestMulticlassClassifier(trees.toSeq, labelSize)
-    evaluate(classifier)
-    classifier
-  }
+  def newModel(featureSize: Int, labelSize: Int) = new RandomForestMulticlassClassifier(null, labelSize)
 }
 
 class RandomForestMulticlassClassifier(var trees: Seq[DTree], val labelSize: Int) extends MulticlassClassifier[Tensor1] {
   self =>
-  def score(features: Tensor1) = {
+  def predict(features: Tensor1) = {
     // TODO why not train an SVM on these predictions instead of just doing majority voting? -luke
     val res = trees.map(t => DTree.score(features, t)).map(t => {t.maxNormalize(); t}).reduce(_ + _)
     res.normalize()
@@ -81,7 +60,7 @@ class RandomForestMulticlassClassifier(var trees: Seq[DTree], val labelSize: Int
 }
 
 class DecisionTreeMulticlassClassifier(var tree: DTree, val labelSize: Int) extends MulticlassClassifier[Tensor1] {
-  def score(features: Tensor1) =
+  def predict(features: Tensor1) =
     DTree.score(features, tree)
   def asTemplate[T <: LabeledMutableDiscreteVar](l2f: T => TensorVar)(implicit ml: Manifest[T]): Template2[T, TensorVar] =
     new ClassifierTemplate2[T](l2f, this)

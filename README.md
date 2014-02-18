@@ -19,6 +19,12 @@ To accomplish the same with sbt, type
 $ ./sbt compile
 ```
 
+You might need additional memory for sbt, if so type
+
+```
+export SBT_OPTS=-Xmx1g
+```
+
 To create a self-contained .jar, that contains FACTORIE plus all its dependencies, including the Scala runtime, type 
 
 ```
@@ -41,14 +47,26 @@ To accomplish the same with sbt, type
 
 ```
 $ ./sbt -J-Xmx2G with-nlp-resources:assembly
+
+```
+##Try out a simple example
+
+To get an idea what a simple FACTORIE program might look like, open one of the class files in the tutorial package
+```
+$ ls factorie/main/scala/cc/factorie/tutorial
+```
+To run one of these examples using maven type
+```
+$ mvn scala:run -DmainClass=cc.factorie.tutorial.Grid
 ```
 
-## Try it out
+
+## Try out implemented NLP models
 
 Then you can run some FACTORIE tools from the command-line. For example, you can run many natural language processing tools.
 
 ```
-$ bin/fac nlp --pos1 --ner1
+$ bin/fac nlp --wsj-forward-pos --conll-chain-ner
 ```
 
 will launch an NLP server that will perform part-of-speech tagging and named entity recognition in its input.  The server listens for text on a socket, and spawns a parallel document processor on each request.  To feed it input, type in a separate shell
