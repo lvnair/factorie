@@ -23,20 +23,23 @@ import cc.factorie.directed._
 import cc.factorie.optimize.TrainerHelpers
 import java.util.concurrent.Executors
 import cc.factorie.variable._
+import cc.factorie.maths._
 
 /** Typical recommended value for alpha1 is 50/numTopics. */
 class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, alpha1:Double = 0.1, val beta1:Double = 0.01,
-           val burnIn: Int = 100)(implicit val model:MutableDirectedModel, implicit val random: scala.util.Random) {
+          val burnIn: Int = 100)(implicit val model:MutableDirectedModel, implicit val random: scala.util.Random) {
   def this(numTopics:Int, alpha1:Double, beta1:Double, burnIn:Int)(implicit random: scala.util.Random) = this(new CategoricalSeqDomain[String], numTopics, alpha1, beta1, burnIn)(DirectedModel(), random)
   var diagnosticName = ""
+  var phiCountslocal:DiscreteMixtureCounts[String] = null
   /** The per-word variable that indicates which topic it comes from. */
   object ZDomain extends DiscreteDomain(numTopics)
   object ZSeqDomain extends DiscreteSeqDomain { def elementDomain = ZDomain }
   class Zs extends DiscreteSeqVariable {
     def this(initial:Seq[Int]) = { this(); this.appendInts(initial) }
     def this(initial:Array[Int]) = { this(); this.appendInts(initial) }
-    def this(len:Int) = this(new Array[Int](len)) // relies on new Array being filled with 0s 
+    def this(len:Int) = this(new Array[Int](len)) // relies on new Array being filled with 0s
     def domain = ZSeqDomain
+
     //def words: Document = childFactors.first.asInstanceOf[PlatedDiscreteMixture.Factor]._1.asInstanceOf[Document]
   }
   def newZs: Zs = new Zs // Because new lda.Zs won't work, because lda isn't a stable identifier.
@@ -55,7 +58,11 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
   def getDocument(name:String) : Doc = documentMap.getOrElse(name, null)
   def nameDocumentMap: scala.collection.Map[String,Doc] = documentMap
   /** The per-topic distribution over words.  FiniteMixture is a Seq of Dirichlet-distributed Proportions. */
+
   val phis = Mixture(numTopics)(ProportionsVariable.growableDense(wordDomain) ~ Dirichlet(betas))
+  val output = "/Users/lvnair/Documents/test.txt"
+  //val output = "/iesl/canvas/lvnair/rexa_corpus/LDA_tests/test9_2000/LDA_top_words_2000topics_total500iterations"
+  //val rexa_corrected = new java.io.PrintWriter(new File(output))
 
   protected def setupDocument(doc:Doc, m:MutableDirectedModel, random: scala.util.Random): Unit = {
     implicit val rng = random
@@ -71,6 +78,9 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
     }
     doc.zs.~(PlatedDiscrete(doc.theta))(m)
     doc.ws.~(PlatedCategoricalMixture(phis, doc.zs))(m)
+    //doc.theta.value.foreach(i => printf("%f".format(i)))
+
+
   }
 
   /** Add a document to the LDA model. */
@@ -80,7 +90,7 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
     documentMap(doc.name) = doc
     maxDocSize = math.max(maxDocSize, doc.ws.length)
   }
-  
+
   def removeDocument(doc:Doc): Unit = {
     documentMap.remove(doc.name)
     model -= model.parentFactor(doc.theta)
@@ -123,10 +133,10 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
       val timeSecs = (System.currentTimeMillis - startIterationTime)/1000.0
       if (timeSecs < 2.0) print(".") else print("%.0fsec ".format(timeSecs)); Console.flush()
       if (i % diagnosticInterval == 0) {
-        println ("\n"+diagnosticName+"\nIteration "+i)
+        //println ("\n"+diagnosticName+"\nIteration "+i)
         sampler.export(phis)
-        if (diagnosticShowPhrases) println(topicsWordsAndPhrasesSummary(10,10)) else println(topicsSummary(20))
-        topictermcount(1)
+        //if (diagnosticShowPhrases) println(topicsWordsAndPhrasesSummary(10,10)) else println(topicsSummary(50))
+
       }
       /*if (i % fitAlphaInterval == 0) {
         sampler.exportThetas(documents)
@@ -146,10 +156,15 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
     // Set original uncollapsed parameters to mean of collapsed parameters
     sampler.export(phis, beta1, numTopics)
     sampler.exportThetas(documents)
+    val phiCounts = new DiscreteMixtureCounts(wordDomain, ZDomain)
+    for (doc <- documents) phiCounts.incrementFactor(model.parentFactor(doc.ws).asInstanceOf[PlatedCategoricalMixture.Factor], 1)
+    phiCountslocal = phiCounts
+    //rexa_corrected.close()
   }
 
   // Not finished
   def inferTopicsMultithreaded(numThreads:Int, iterations:Int = 60, fitAlphaInterval:Int = Int.MaxValue, diagnosticInterval:Int = 10, diagnosticShowPhrases:Boolean = false): Unit = {
+    println("In here")
     if (fitAlphaInterval != Int.MaxValue) throw new Error("LDA.inferTopicsMultithreaded.fitAlphaInterval not yet implemented.")
     val docSubsets = documents.grouped(documents.size/numThreads + 1).toSeq
 
@@ -187,8 +202,8 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
           for (threadID <- 0 until numThreads) phiCounts.mixtureCounts(t) += samplersArray(threadID).localPhiCounts.mixtureCounts(t)
         })
         (0 until numTypes).par.foreach(w => {
-            phiCounts(w).clear()
-            for (threadID <- 0 until numThreads) samplersArray(threadID).localPhiCounts(w).forCounts((t, c) => phiCounts(w).incrementCountAtIndex(t, c))
+          phiCounts(w).clear()
+          for (threadID <- 0 until numThreads) samplersArray(threadID).localPhiCounts(w).forCounts((t, c) => phiCounts(w).incrementCountAtIndex(t, c))
         })
 
         // Print topic sizes here.
@@ -204,43 +219,78 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
           println ("Iteration "+iteration)
           maximizePhisAndThetas
 
-          if (diagnosticShowPhrases) println(topicsWordsAndPhrasesSummary(10,10)) else println(topicsSummary(20))
+          if (diagnosticShowPhrases) println(topicsWordsAndPhrasesSummary(10,10)) else println(topicsSummary(100))
 
         }
+
+
+
 
         val timeSecs = (System.currentTimeMillis - startIterationTime)/1000.0
         if (timeSecs < 2.0) print(".") else print("%.0fsec ".format(timeSecs)); Console.flush()
       }
     } finally pool.shutdown()
     maximizePhisAndThetas
+    //rexa_corrected.close()
   }
   def topictermcount(topicIndex:Int):Int={
-    var count = 0;
-    for(doc <- documents){
+
+    var count = 0
+
+    //println(wordDomain.apply(1).category)
+    //println(wordSeqDomain.elementDomain.size)
+    //println(wordDomain._elements.size)
+    /*for(doc <- documents){
          //println(doc.ws.categoryValues)
 
          val len = doc.ws.categoryValues.length
-         //println("total no of terms in a document "+doc.ws.categoryValues.length)
+
          var i=0
          while (i < len) {
            val zi = doc.zs.intValue(i)
+
            i=i+1
-           //println(zi +"for term "+i)
+
            if(zi==topicIndex){
              count = count+1
            }
          }
 
-    }
-  count
+    }   */
+    count
+    //phiCountslocal.mixtureCounts(topicIndex)
+
   }
-  def topicWords(topicIndex:Int, numWords:Int = 10): Seq[String] = phis(topicIndex).value.top(numWords).map(dp => wordDomain.category(dp.index))
+  def topicWords(topicIndex:Int, numWords:Int = 10): Seq[String] =  {
+    val wordlist =  phis(topicIndex).value.top(numWords).map(dp => wordDomain.category(dp.index))
+    //rexa_corrected.write(topicIndex.toString())
+    //for(w <- wordlist){
+    //rexa_corrected.write(" "+ w)
+    //}
+    //rexa_corrected.write("\n")
+
+    wordlist
+  }
+
+
+
   def topicWordsArray(topicIndex:Int, numWords:Int): Array[String] = topicWords(topicIndex, numWords).toArray
-  def topicSummary(topicIndex:Int, numWords:Int = 10): String = "Topic %3d %s  %d  %f %d".format(topicIndex, topicWords(topicIndex, numWords).mkString(" "), phis(topicIndex).value.massTotal.toInt, alphas.value(topicIndex),topictermcount(topicIndex))
-  def topicsSummary(numWords:Int = 10): String = Range(0, numTopics).map(topicSummary(_, numWords)).mkString("\n")
+  def topicSummary(topicIndex:Int, numWords:Int = 10): String = {
+
+    "Topic %3d %s  %d  %f %d".format(topicIndex, topicWords(topicIndex, numWords).mkString(" "), phis(topicIndex).value.massTotal.toInt, alphas.value(topicIndex),topictermcount(topicIndex))
+  }
+  def topicsSummary(numWords:Int = 10): String = {
+
+    Range(0, numTopics).map(topicSummary(_, numWords)).mkString("\n")
+  }
+
+
+
 
   def topicsPhraseCounts = new TopicPhraseCounts(numTopics) ++= documents
   def topicsWordsAndPhrasesSummary(numWords: Int = 10, numPhrases: Int = 10): String = {
+
+
     val sb = new StringBuffer
     val tpc = topicsPhraseCounts
     for (i <- 0 until numTopics) {
@@ -252,7 +302,7 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
     }
     sb.toString
   }
-  
+
   def maximizePhisAndThetas(): Unit = {
     phis.foreach(_.value.zero())
     // TODO What about the priors on phis and theta?? -akm
@@ -267,19 +317,19 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
       }
     }
   }
-  
+
   def saveWordsZs(file:File): Unit = {
     val pw = new PrintWriter(file)
     for (doc <- documents) doc.writeNameWordsZs(pw)
   }
-  
+
   def addDocumentsFromWordZs(file:File, minDocLength:Int, random: scala.util.Random): Unit = {
     import scala.util.control.Breaks._
     val reader = new BufferedReader(new InputStreamReader(new FileInputStream(file)))
     reader.mark(512)
     val alphasName = reader.readLine()
     if (alphasName == "/alphas") { // If they are present, read the alpha parameters.
-      val alphasString = reader.readLine(); alphas.value := alphasString.split(" ").map(_.toDouble) // set lda.alphas
+    val alphasString = reader.readLine(); alphas.value := alphasString.split(" ").map(_.toDouble) // set lda.alphas
       reader.readLine() // consume delimiting newline
       println("Read alphas "+alphas.value.mkString(" "))
     } else reader.reset() // Put the reader back to the read position when reader.mark was called
@@ -311,7 +361,7 @@ class LDACmd {
   import cc.factorie.app.strings.StringSegmenter
   var verbose = false
   val minDocLength = 3
-  def newDocument(domain:CategoricalSeqDomain[String], name:String, contents:Reader, segmenter:StringSegmenter): Doc = Document.fromReader(domain, name, contents, segmenter) 
+  def newDocument(domain:CategoricalSeqDomain[String], name:String, contents:Reader, segmenter:StringSegmenter): Doc = Document.fromReader(domain, name, contents, segmenter)
 
   def main(args:Array[String]): Unit = {
     object opts extends cc.factorie.util.DefaultCmdOptions {
@@ -319,8 +369,8 @@ class LDACmd {
       val alpha =         new CmdOption("alpha", 0.1, "N", "Dirichlet parameter for per-document topic proportions.")
       val beta =          new CmdOption("beta", 0.01, "N", "Dirichlet parameter for per-topic word proportions.")
       val numThreads =    new CmdOption("num-threads", 1, "N", "Number of threads for multithreaded topic inference.")
-      val numIterations = new CmdOption("num-iterations", 'i', 50, "N", "Number of iterations of inference.")
-      val diagnostic =    new CmdOption("diagnostic-interval", 'd', 10, "N", "Number of iterations between each diagnostic printing of intermediate results.")
+      val numIterations = new CmdOption("num-iterations", 'i', 0, "N", "Number of iterations of inference.")
+      val diagnostic =    new CmdOption("diagnostic-interval", 'd', 100, "N", "Number of iterations between each diagnostic printing of intermediate results.")
       val diagnosticPhrases= new CmdOption("diagnostic-phrases", false, "true|false", "If true diagnostic printing will include multi-word phrases.")
       val fitAlpha =      new CmdOption("fit-alpha-interval", Int.MaxValue, "N", "Number of iterations between each re-estimation of prior on per-document topic distribution.")
       val optimizeBurnIn =new CmdOption("optimize-burn-in", 100, "N", "Number of iterations to run before the first estimation of the alpha parameters")
@@ -330,22 +380,29 @@ class LDACmd {
       val readLinesRegex= new CmdOption("read-lines-regex", "", "REGEX", "Regular expression with parens around the portion of the line that should be read as the text of the document.")
       val readLinesRegexGroups= new CmdOption("read-lines-regex-groups", List(1), "GROUPNUMS", "The --read-lines-regex group numbers from which to grab the text of the document.")
       val readLinesRegexPrint = new CmdOption("read-lines-regex-print", false, "BOOL", "Print the --read-lines-regex match that will become the text of the document.")
-      val writeDocs =     new CmdOption("write-docs", "lda-docs.txt", "FILENAME", "Save LDA state, writing document names, words and z assignments") 
-      val readDocs =      new CmdOption("read-docs", "lda-docs.txt", "FILENAME", "Add documents from filename, reading document names, words and z assignments; store documents; can then add more documents or do more inference.") 
+      val writeDocs =     new CmdOption("write-docs", "lda-docs.txt", "FILENAME", "Save LDA state, writing document names, words and z assignments")
+      val readDocs =      new CmdOption("read-docs", "lda-docs.txt", "FILENAME", "Add documents from filename, reading document names, words and z assignments; store documents; can then add more documents or do more inference.")
       val readPhis =      new CmdOption("read-phis", "lda-docs.txt", "FILENAME", "Read documents from filename, but only use them to increment topic word counts; does not store documents (conserving memory); cannot do more inference, nor print phrases") { override def invoke = { numIterations.value = 0; numIterations.defaultValue = 0 } }
       val maxNumDocs =    new CmdOption("max-num-docs", Int.MaxValue, "N", "The maximum number of documents to read.")
       val printTopics =   new CmdOption("print-topics", 20, "N", "Just before exiting print top N words for each topic.")
       val printPhrases =  new CmdOption("print-topics-phrases", 20, "N", "Just before exiting print top N phrases for each topic.")
       val thetaServer   = new CmdOption("theta-server", 50, "N", "Read from sdin newline-separated documents, and output a theta topic distribution for each, estimated by N iterations of sampling on the document.")
       val verbose =       new CmdOption("verbose", "Turn on verbose output") { override def invoke = LDACmd.this.verbose = true }
+      val topicOutputFile =  new CmdOption("topic-output-file", "lda-output.txt", "FILENAME", "Save the top words per topic to an output file")
+      val testFile =   new CmdOption("test-file", "L-R-Eval.txt", "FILENAME", "Test file containing test documents to calculate L-R held-out log likelihood values.")
       // TODO Add stopwords option
       // TODO Add option to save alphas somewhere, perhaps first line of the writeDocs file, like a document containing only numbers (with extra newline at the end):
       // alphas
       // 0.23 0.15 0.62
-      // 
+      //
     }
     implicit val random = new scala.util.Random(0)
     opts.parse(args)
+
+    val testFile = opts.testFile.value
+    val numTopics = opts.numTopics.value
+
+    val pw = new PrintWriter(new File(opts.topicOutputFile.value))
     /** The domain of the words in documents */
     object WordSeqDomain extends CategoricalSeqDomain[String]
     val model = DirectedModel()
@@ -363,21 +420,21 @@ class LDACmd {
         }}
         //println()
       }
-    } 
+    }
     if (opts.readLines.wasInvoked) {
       val name = if (opts.readLines.value == "-") "stdin" else opts.readLines.value
       val source = if (opts.readLines.value == "-") scala.io.Source.stdin else scala.io.Source.fromFile(new File(opts.readLines.value))
       var count = 0
       breakable { for (line <- source.getLines()) {
         if (lda.documents.size == opts.maxNumDocs.value) break()
-        val text: String = 
-          if (!opts.readLinesRegex.wasInvoked) line 
+        val text: String =
+          if (!opts.readLinesRegex.wasInvoked) line
           else {
             val textbuffer = new StringBuffer
             for (groupIndex <- opts.readLinesRegexGroups.value) {
-            	val mi = opts.readLinesRegex.value.r.findFirstMatchIn(line).getOrElse(throw new Error("No regex match for --read-lines-regex in "+line))
-            	if (mi.groupCount >= groupIndex) textbuffer append mi.group(groupIndex)
-            	else throw new Error("No group found with index "+groupIndex)
+              val mi = opts.readLinesRegex.value.r.findFirstMatchIn(line).getOrElse(throw new Error("No regex match for --read-lines-regex in "+line))
+              if (mi.groupCount >= groupIndex) textbuffer append mi.group(groupIndex)
+              else throw new Error("No group found with index "+groupIndex)
             }
             textbuffer.toString
           }
@@ -396,7 +453,7 @@ class LDACmd {
       reader.mark(512)
       val alphasName = reader.readLine()
       if (alphasName == "/alphas") { // If they are present, read the alpha parameters.
-        val alphasString = reader.readLine(); lda.alphas.value := alphasString.split(" ").map(_.toDouble) // set lda.alphas
+      val alphasString = reader.readLine(); lda.alphas.value := alphasString.split(" ").map(_.toDouble) // set lda.alphas
         reader.readLine() // consume delimiting newline
         println("Read alphas "+lda.alphas.value.mkString(" "))
       } else reader.reset() // Put the reader back to the read position when reader.mark was called
@@ -446,13 +503,13 @@ class LDACmd {
     if (opts.numIterations.value > 0) {
       val startTime = System.currentTimeMillis
       if (opts.numThreads.value > 1)
-       lda.inferTopicsMultithreaded(opts.numThreads.value, opts.numIterations.value, diagnosticInterval = opts.diagnostic.value, diagnosticShowPhrases = opts.diagnosticPhrases.value) 
+        lda.inferTopicsMultithreaded(opts.numThreads.value, opts.numIterations.value, diagnosticInterval = opts.diagnostic.value, diagnosticShowPhrases = opts.diagnosticPhrases.value)
 
 
-        else
+      else
         lda.inferTopics(opts.numIterations.value, fitAlphaInterval = opts.fitAlpha.value, diagnosticInterval = opts.diagnostic.value, diagnosticShowPhrases = opts.diagnosticPhrases.value)
       println("Finished in " + ((System.currentTimeMillis - startTime) / 1000.0) + " seconds")
-  	}	
+    }
 
     //testSaveLoad(lda)
     //println("topics.LDA temporary test")
@@ -461,7 +518,7 @@ class LDACmd {
     //lda.inferDocumentTheta(doc1)
     //println(doc1.ws.categoryValues.take(10).mkString(" "))
     //println(doc1.theta)
-    
+
     if (opts.writeDocs.wasInvoked) {
       val file = new File(opts.writeDocs.value)
       val pw = new PrintWriter(file)
@@ -471,12 +528,12 @@ class LDACmd {
       lda.documents.foreach(_.writeNameWordsZs(pw))
       pw.close()
     }
-    
-    if (opts.printTopics.wasInvoked) 
+
+    if (opts.printTopics.wasInvoked)
       println(lda.topicsSummary(opts.printTopics.value))
-    if (opts.printPhrases.wasInvoked) 
+    if (opts.printPhrases.wasInvoked)
       println(lda.topicsWordsAndPhrasesSummary(opts.printPhrases.value, opts.printPhrases.value))
-      //println(lda.topicsPhraseCounts.topicsPhrasesSummary(opts.printPhrases.value))
+    //println(lda.topicsPhraseCounts.topicsPhrasesSummary(opts.printPhrases.value))
 
     if (opts.thetaServer.wasInvoked) {
       lda.wordSeqDomain.elementDomain.freeze()
@@ -492,6 +549,135 @@ class LDACmd {
         line = reader.readLine
       }
     }
+    for(i <- 0 to opts.numTopics.value-1){
+      val wordlist =  lda.phis(i).value.top(100).map(dp => lda.wordDomain.category(dp.index))
+      pw.write(i.toString())
+
+      for(w <- wordlist){
+        pw.write(" "+ w)
+      }
+      pw.write("\n")
+    }
+    pw.close()
+
+
+    var alphas: Array[Double]=null
+    alphas = Array.fill[Double](numTopics)((lda.alphas.value.massTotal)/numTopics)
+    val alphaSum = lda.alphas.value.massTotal
+    val beta = lda.beta1
+    val betaSum = beta*lda.wordDomain.size
+    val phiCounts = new DiscreteMixtureCounts(lda.wordDomain, lda.ZDomain)
+    for (doc<- lda.documents){
+      phiCounts.incrementFactor(lda.model.parentFactor(doc.ws).asInstanceOf[PlatedCategoricalMixture.Factor], 1)
+    }
+
+    var termTopicCounts = Array.ofDim[Int](lda.wordDomain.size,numTopics)
+    var topicCounts : Array[Int]=null
+    topicCounts = Array.fill[Int](numTopics)(0)
+    for(topic <- 0 to numTopics-1){
+      topicCounts(topic) = phiCounts.mixtureCounts(topic)
+    }
+
+    var typeTopicCounts= new Array[HashMap[Int, Int]](lda.wordDomain.size)
+
+    for (wi <- 0 until lda.wordDomain.size)  {
+      var topicCounts = new HashMap[Int,Int]()
+
+      val phiCountsWi = phiCounts(wi)
+      var tp = 0
+      while(tp < phiCountsWi.numPositions){
+        val topic = phiCountsWi.indexAtPosition(tp)
+        val count =  phiCountsWi.countAtPosition(tp)
+        topicCounts(topic) = count
+        termTopicCounts(wi)(topic) = count
+
+        tp=tp+1
+      }
+
+
+      typeTopicCounts(wi)=  topicCounts
+
+
+    }
+
+    println("Final Loglikelihood "+modelLogLikelihood(lda,numTopics,topicCounts,termTopicCounts))
+    // Max likelihood calculation
+    val HeldOutLLREval  = new LREval(lda.wordSeqDomain,lda.ZDomain,alphas,alphaSum,beta,betaSum,topicCounts,typeTopicCounts)
+
+    println( "HeldOutLikelihood for the test document is " + HeldOutLLREval.calcLR(testFile,5,false))
+
   }
+
+
+  def modelLogLikelihood(lda:LDA,numTopics:Int,localTopicCounts:Array[Int],localTermTopicCounts:Array[Array[Int]]):Double={
+
+    var logLikelihood=0.0
+    var topicLogGammas = new Array[Double](numTopics)
+    var topicCounts = new Array[Int](numTopics)
+    var alpha = lda.alphas.value.toArray
+    val alphaSum = lda.alphas.value.massTotal
+    val beta = lda.beta1
+    val numTypes = lda.wordDomain.size
+    var tCount=0
+    while(tCount<numTopics){
+      topicLogGammas(tCount)=logGamma(alpha(tCount))
+      tCount=tCount+1
+    }
+    val docIter = lda.documents.iterator
+    while(docIter.hasNext){
+
+      val doc = docIter.next()
+      val len = doc.ws.length
+      var i=0
+      while (i < len) {
+        val zi = doc.zs.intValue(i)
+        topicCounts(zi) = topicCounts(zi)+1
+        i+=1
+      }
+      tCount=0
+      while(tCount<numTopics){
+        if(topicCounts(tCount)>0){
+          logLikelihood+= logGamma(alpha(tCount) + topicCounts(tCount)) - topicLogGammas(tCount)
+        }
+        tCount=tCount+1
+      }
+
+      logLikelihood-= logGamma(alphaSum+len)
+      topicCounts = Array.fill[Int](numTopics)(0)
+    }
+    logLikelihood += lda.documents.size * logGamma(alphaSum)
+
+
+    var nonZeroTypeTopics=0.0
+    var wi=0
+
+
+    while (wi < numTypes)  {
+      val localCounts = localTermTopicCounts(wi)
+      var tp = 0
+      while(tp < numTopics){
+        val count = localCounts(tp)
+        if(count>0){
+          nonZeroTypeTopics+=1
+          logLikelihood+=logGamma(beta+count)
+        }
+        tp=tp+1
+
+      }
+      wi+=1
+    }
+
+    tCount=0
+    while(tCount<numTopics){
+      logLikelihood-=logGamma((beta*numTypes)+localTopicCounts(tCount))
+      tCount+=1
+    }
+    logLikelihood+=logGamma(numTypes * beta) * numTopics
+    logLikelihood-=logGamma(beta) * nonZeroTypeTopics
+    return logLikelihood
+
+
+  }
+
 }
 

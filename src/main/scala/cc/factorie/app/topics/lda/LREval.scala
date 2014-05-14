@@ -18,7 +18,8 @@ import cc.factorie.variable.{DiscreteSeqDomain, DiscreteSeqVariable, DiscreteDom
  *         topic; only topics with non-zero counts should be specified.
  */
 class LREval(val wSeqDomain: CategoricalSeqDomain[String], val zDomain: DiscreteDomain, val alpha: Array[Double], val alphaSum: Double,
-                      val beta: Double, val betaSum: Double, val topicCounts: Array[Int], val typeTopicCounts: Array[HashMap[Int, Int]]){
+             val beta: Double, val betaSum: Double, val topicCounts: Array[Int], val typeTopicCounts: Array[HashMap[Int, Int]]){
+
 
   def numTopics = zDomain.size
   object zSeqDomain extends DiscreteSeqDomain { def elementDomain = zDomain }
@@ -43,6 +44,7 @@ class LREval(val wSeqDomain: CategoricalSeqDomain[String], val zDomain: Discrete
     for(line <- source.getLines()){
       docInd += 1
       val doc = Document.fromString(wSeqDomain, "doc:"+docInd, line, segmenter = mySegmenter)
+
       doc.zs = new Zs(Array.tabulate(doc.ws.length)(i => random.nextInt(numTopics)))
       docs += doc
     }
@@ -61,7 +63,7 @@ class LREval(val wSeqDomain: CategoricalSeqDomain[String], val zDomain: Discrete
 
     testDocs.foreach(doc => {
       docInd += 1
-      println("Processing document " + docInd)
+      //println("Processing document " + docInd)
 
       val docTopicCounts: Array[Int] = new Array[Int](numTopics)
       val docSize = doc.zs.length
@@ -69,25 +71,28 @@ class LREval(val wSeqDomain: CategoricalSeqDomain[String], val zDomain: Discrete
 
       for (position <- 0 until docSize){
         val wi = doc.ws.intValue(position)
-        val currentTypeTopicCounts = typeTopicCounts(wi)
-        var positionProb = 0.0
+        if(wi<typeTopicCounts.size){
+          val currentTypeTopicCounts = typeTopicCounts(wi)
+          var positionProb = 0.0
 
-        for (particleInd <- 0 until numParticles){
+          for (particleInd <- 0 until numParticles){
 
-          if (useResampling)
-            for (positionPrime <- 0 until position)
-              sampleAtPosition(positionPrime, doc, docTopicCounts, true, false)
+            if (useResampling)
+              for (positionPrime <- 0 until position)
+                sampleAtPosition(positionPrime, doc, docTopicCounts, true, false)
 
-          var tokenProb = 0.0
-          for(zInd <- 0 until numTopics){
-            tokenProb += (alpha(zInd) + docTopicCounts(zInd)) * (beta + currentTypeTopicCounts.getOrElse(zInd, 0)) /
-              ((alphaSum + position) * (betaSum + topicCounts(zInd)))
+            var tokenProb = 0.0
+            for(zInd <- 0 until numTopics){
+              tokenProb += (alpha(zInd) + docTopicCounts(zInd)) * (beta + currentTypeTopicCounts.getOrElse(zInd, 0)) /
+                ((alphaSum + position) * (betaSum + topicCounts(zInd)))
+            }
+            positionProb += tokenProb
           }
-          positionProb += tokenProb
-        }
 
-        heldoutLogLike += math.log(positionProb) - logNumParticles
-        sampleAtPosition(position, doc, docTopicCounts, false, false)
+          heldoutLogLike += math.log(positionProb) - logNumParticles
+
+          sampleAtPosition(position, doc, docTopicCounts, false, false)
+        }
       }
     })
 
@@ -129,11 +134,11 @@ class LREval(val wSeqDomain: CategoricalSeqDomain[String], val zDomain: Discrete
 
     // Sample a topic
     var sample = random.nextDouble() * totalMass
-		var newTi = -1
-		while (sample > 0.0) {
-		  newTi += 1
-		  sample -= topicMassContrib(newTi)
-		}
+    var newTi = -1
+    while (sample > 0.0) {
+      newTi += 1
+      sample -= topicMassContrib(newTi)
+    }
     assert(newTi != -1, "Topic not sampled!")
 
     // Increment doc counts
