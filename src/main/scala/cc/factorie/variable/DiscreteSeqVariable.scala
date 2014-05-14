@@ -1,7 +1,6 @@
-/* Copyright (C) 2008-2010 University of Massachusetts Amherst,
-   Department of Computer Science.
+/* Copyright (C) 2008-2014 University of Massachusetts Amherst.
    This file is part of "FACTORIE" (Factor graphs, Imperative, Extensible)
-   http://factorie.cs.umass.edu, http://code.google.com/p/factorie/
+   http://factorie.cs.umass.edu, http://github.com/factorie
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
@@ -60,7 +59,7 @@ trait MutableDiscreteSeqVar[A<:DiscreteValue] extends MutableVar with cc.factori
     def length = arr.length
     def apply(i:Int) = arr(i).asInstanceOf[A]
    //_toSeq.map(i => domain.elementDomain.getValue(i)) // TODO make this more efficient 
-  }.asInstanceOf
+  }.asInstanceOf[Value]
   def set(newValue:Value)(implicit d:DiffList): Unit = _set(Array.tabulate(newValue.length)(i => newValue(i).intValue))
   def trimCapacity(): Unit = _trimCapacity
   def clear(): Unit = _clear()

@@ -1,3 +1,15 @@
+/* Copyright (C) 2008-2014 University of Massachusetts Amherst.
+   This file is part of "FACTORIE" (Factor graphs, Imperative, Extensible)
+   http://factorie.cs.umass.edu, http://github.com/factorie
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License. */
 package cc.factorie.util
 
 import java.io._
@@ -22,10 +34,10 @@ trait CubbieConversions {
 
   implicit def modm(m: Parameters): Cubbie = new WeightsSetCubbie(m.parameters)
   implicit def cdm(m: CategoricalDomain[_]): Cubbie = new CategoricalDomainCubbie(m)
-  implicit def smm(m: mutable.HashMap[String, String]): Cubbie = new StringMapCubbie(m)
   implicit def csdm(m: CategoricalSeqDomain[_]): Cubbie = new CategoricalSeqDomainCubbie(m)
   implicit def cdtdm(m: CategoricalVectorDomain[_]): Cubbie = new CategoricalVectorDomainCubbie(m)
-  implicit def simm(m: mutable.HashMap[String,Int]): Cubbie = new StringMapCubbie(m) //StringMapCubbie is parametrized by T, as String -> T, so this knows that it's an Int
+  implicit def simm(m: mutable.Map[String,Int]): Cubbie = new StringMapCubbie(m) //StringMapCubbie is parametrized by T, as String -> T, so this knows that it's an Int
+  implicit def smm(m: mutable.Map[String,String]): Cubbie = new StringMapCubbie(m)
 }
 
 // You can import this object to gain access to the default cubbie conversions
@@ -34,8 +46,9 @@ object CubbieConversions extends CubbieConversions
 object BinarySerializer extends GlobalLogging {
   import cc.factorie._
   private def getLazyCubbieSeq(vals: Seq[() => Cubbie]): Seq[Cubbie] = vals.view.map(_())
-  // We lazily create the cubbies because, for example, model cubbies will force their model's weightsSet lazy vals
+  // We lazily create the cubbies because, for example, model cubbies will force their model's weights' lazy vals
   // so we need to control the order of cubbie creation and serialization (domains are deserialized before model cubbies are even created)
+  // Is this still an issue with the Weights/Parameters stuff?? -luke
   def serialize(c1: => Cubbie, file: File, gzip: Boolean): Unit =
     serialize(getLazyCubbieSeq(Seq(() => c1)), file, gzip)
   def serialize(c1: => Cubbie, c2: => Cubbie, file: File, gzip: Boolean): Unit =

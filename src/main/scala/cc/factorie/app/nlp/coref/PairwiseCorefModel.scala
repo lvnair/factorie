@@ -1,3 +1,15 @@
+/* Copyright (C) 2008-2014 University of Massachusetts Amherst.
+   This file is part of "FACTORIE" (Factor graphs, Imperative, Extensible)
+   http://factorie.cs.umass.edu, http://github.com/factorie
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License. */
 package cc.factorie.app.nlp.coref
 
 import cc.factorie._
@@ -6,10 +18,10 @@ import cc.factorie.la.{SparseBinaryTensor, DenseTensor1, WeightsMapAccumulator, 
 import cc.factorie.optimize.{OptimizableObjectives, PredictorExample, Example}
 import java.io._
 import cc.factorie.util.BinarySerializer
-import cc.factorie.util.coref.GenericEntityMap
+import cc.factorie.util.BasicEvaluatableClustering
 import cc.factorie.variable.{VectorDomain, DiscreteDomain, CategoricalVectorDomain, CategoricalDomain}
 import cc.factorie.model.Parameters
-import cc.factorie.app.nlp.coref.mention.{Entity, Mention}
+import cc.factorie.app.nlp.coref._
 
 /**
  * User: apassos
@@ -54,15 +66,15 @@ trait PairwiseCorefModel extends app.classify.backend.OptimizablePredictor[Doubl
     BinarySerializer.serialize(this,stream)
   }
 
-  def generateTrueMap(mentions: Seq[Mention]): GenericEntityMap[Mention] = {
-    val trueMap = new GenericEntityMap[Mention]
-    mentions.foreach(m => trueMap.addMention(m, trueMap.numMentions.toLong))
-    val entities = mentions.groupBy(_.attr[Entity])
-    entities.flatMap(_._2.sliding(2)).foreach(p => {
-      if (p.size == 2) trueMap.addCoreferentPair(p(0), p(1))
-    })
-    trueMap
-  }
+//  def generateTrueClustering(mentions: Seq[Mention]): BasicEvaluatableClustering = {
+//    val trueMap = new GenericEntityMap[Mention]
+//    mentions.foreach(m => trueMap.addMention(m, trueMap.numMentions.toLong))
+//    val entities = mentions.groupBy(_.entity)
+//    entities.flatMap(_._2.sliding(2)).foreach(p => {
+//      if (p.size == 2) trueMap.addCoreferentPair(p(0), p(1))
+//    })
+//    trueMap
+//  }
 
 }
 

@@ -1,3 +1,15 @@
+/* Copyright (C) 2008-2014 University of Massachusetts Amherst.
+   This file is part of "FACTORIE" (Factor graphs, Imperative, Extensible)
+   http://factorie.cs.umass.edu, http://github.com/factorie
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License. */
 package cc.factorie.app.nlp.segment
 
 import cc.factorie.app.nlp.{DocumentAnnotator, Token, Document}
@@ -28,6 +40,7 @@ class DeterministicTokenizer(caseSensitive:Boolean = false, tokenizeSgml:Boolean
   val usphone = "(\\+?1[-\\. \u00A0]?)?(\\([0-9]{3}\\)[ \u00A0]?|[0-9]{3}[- \u00A0\\.])[0-9]{3}[\\- \u00A0\\.][0-9]{4}"; patterns += usphone
   val frphone = "(\\+33)?(\\s[012345][-\\. ])?[0-9]([-\\. ][0-9]{2}){3}"; patterns += frphone
   val date = "((((19|20)?[0-9]{2}[\\-/][0-3]?[0-9][\\-/][0-3]?[0-9])|([0-3]?[0-9][\\-/][0-3]?[0-9][\\-/](19|20)?[0-9]{2}))(?![0-9]))"; patterns += date // e.g. 3/4/1992 or 2012-04-05, but don't match just the first 8 chars of 12-25-1112
+  val decade = "(19|20)?[0-9]0s"; patterns += decade
   val currency = "(?:US|AU|NZ|C|CA|FJ|JY|HK|JM|KY|LR|NA|SB|SG|NT|BB|XC|BM|BN|BS|BZ|ZB|B)?\\$|&(euro|cent|pound);|\\p{Sc}|(USD|EUR|JPY|GBP|CHF|CAD|KPW|RMB|CNY|AD|GMT)(?![A-Z])"; patterns += currency
   val hashtag = "#[A-Za-z][A-Za-z0-9]+"; patterns += hashtag // For Twitter
   val atuser  = "@[A-Za-z][A-Za-z0-9]+"; patterns += atuser  // For Twitter

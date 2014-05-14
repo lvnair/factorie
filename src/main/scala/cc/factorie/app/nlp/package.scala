@@ -1,3 +1,15 @@
+/* Copyright (C) 2008-2014 University of Massachusetts Amherst.
+   This file is part of "FACTORIE" (Factor graphs, Imperative, Extensible)
+   http://factorie.cs.umass.edu, http://github.com/factorie
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License. */
 package cc.factorie.app
 
 package object nlp {
@@ -39,7 +51,20 @@ package object nlp {
     result
   }
   
-  def bioBoundaries(labels:Seq[String]): Seq[(Int,Int)] = ???
+  def bioBoundaries(labels:Seq[String]): Seq[(Int,Int,String)] = {
+    val result = new scala.collection.mutable.ArrayBuffer[(Int,Int,String)]
+    val strings = labels.map(_.split('-'))
+    val bios = strings.map(_.apply(0))
+    val types = strings.map(a => if (a.length > 1) a(1) else "")
+    var start = -1; var length = 0; var prevType = ""
+    for (i <- 0 until labels.length) {
+      val atBoundary = bios(i) == "B"
+      if (start >= 0 && atBoundary) { result.+=((start, i-start, types(i))); start = -1 }
+      if (types(i) != "" && atBoundary) start = i
+      prevType = types(i)
+    }
+    result
+  }
 
 
   /** Command-line options available on all NLP model trainers.

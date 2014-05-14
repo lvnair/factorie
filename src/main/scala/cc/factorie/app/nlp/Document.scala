@@ -1,7 +1,6 @@
-/* Copyright (C) 2008-2010 University of Massachusetts Amherst,
-   Department of Computer Science.
+/* Copyright (C) 2008-2014 University of Massachusetts Amherst.
    This file is part of "FACTORIE" (Factor graphs, Imperative, Extensible)
-   http://factorie.cs.umass.edu, http://code.google.com/p/factorie/
+   http://factorie.cs.umass.edu, http://github.com/factorie
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
@@ -18,6 +17,8 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable
 import cc.factorie.util.{Cubbie, Attr}
 import cc.factorie.variable.CategoricalVar
+import cc.factorie.util.UniqueId
+import cc.factorie.app.nlp.coref.WithinDocCoref
 
 /** A portion of the string contents of a Document.
     @author Andrew McCallum */
@@ -68,7 +69,7 @@ trait DocumentSubstring {
     "for (section <- document.sections) section.tokens.someMethodOnSeq()...".  
     
     @author Andrew McCallum */
-class Document extends DocumentSubstring with Attr {
+class Document extends DocumentSubstring with Attr with UniqueId {
   /** Create a new Document, initializing it to have contents given by the argument. */
   def this(stringContents:String) = { this(); _string = stringContents }
   /** Return the "name" assigned to this Document by the 'setName' method.
@@ -78,7 +79,9 @@ class Document extends DocumentSubstring with Attr {
       It accomplishes this by setting the DocumentName attr on Document.  
       If the String argument is null, it will remove DocumentName attr if present. */
   def setName(s:String): this.type = { if (s ne null) this.attr += DocumentName(s) else this.attr.remove[DocumentName]; this }
-  
+  /** The unique identifier for this Document, e.g. used for database lookup, etc.
+      Defined to be the Document's name; we are relying on the user to set the name to a unique value. */
+  def uniqueId = name
   // One of the following two is always null, the other non-null.  The later is used while multiple appendString() method calls are made.
   private var _string: String = ""
   private var _stringbuf: StringBuffer = null
@@ -171,6 +174,14 @@ class Document extends DocumentSubstring with Attr {
 //    }
 //    buf.toString
 //  }
+
+  // Common attributes, will return null if not present
+  def coref: WithinDocCoref = this.attr[WithinDocCoref]
+  def targetCoref: WithinDocCoref = { val coref = this.attr[WithinDocCoref]; if (coref eq null) null else coref.target }
+  /** Return the WithinDocCoref solution for this Document.  If not already present create it. */
+  def getCoref: WithinDocCoref = this.attr.getOrElseUpdate[WithinDocCoref](new WithinDocCoref(this))
+  /** Return the gold-standard WithinDocCoref.target solution for this Document.  If not already present create it. */
+  def getTargetCoref: WithinDocCoref = { val coref = this.coref; if (coref.target eq null) coref.target = new WithinDocCoref(this); coref.target }
   
   /** Return a String containing the Token strings in the document, formatted with one-word-per-line 
       and various tab-separated attributes appended on each line, generated as specified by the argument. */
