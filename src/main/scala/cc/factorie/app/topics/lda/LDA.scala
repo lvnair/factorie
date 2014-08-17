@@ -163,7 +163,7 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
 
   // Not finished
   def inferTopicsMultithreaded(numThreads:Int, iterations:Int = 60, fitAlphaInterval:Int = Int.MaxValue, diagnosticInterval:Int = 10, diagnosticShowPhrases:Boolean = false): Unit = {
-    println("In here")
+
     if (fitAlphaInterval != Int.MaxValue) throw new Error("LDA.inferTopicsMultithreaded.fitAlphaInterval not yet implemented.")
     val docSubsets = documents.grouped(documents.size/numThreads + 1).toSeq
 
@@ -256,8 +256,8 @@ class LDA(val wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int = 10, 
          }
 
     }   */
-    count
-    //phiCountslocal.mixtureCounts(topicIndex)
+    //count
+    phiCountslocal.mixtureCounts(topicIndex)
 
   }
   def topicWords(topicIndex:Int, numWords:Int = 10): Seq[String] =  {
@@ -402,6 +402,7 @@ class LDACmd {
     val numTopics = opts.numTopics.value
 
     val pw = new PrintWriter(new File(opts.topicOutputFile.value))
+    val out =  new PrintWriter(new File("lda-output-termcount.txt"))
     /** The domain of the words in documents */
     object WordSeqDomain extends CategoricalSeqDomain[String]
     val model = DirectedModel()
@@ -440,7 +441,9 @@ class LDACmd {
         if (text eq null) throw new Error("No () group for --read-lines-regex in "+line)
         if (opts.readLinesRegexPrint.value) println(text)
         val doc = Document.fromString(WordSeqDomain, name+":"+count, text, segmenter = mySegmenter)
+
         if (doc.length >= minDocLength) lda.addDocument(doc, random)
+
         count += 1
         if (count % 1000 == 0) { print(" "+count); Console.flush() }; if (count % 10000 == 0) println()
       }}
@@ -497,7 +500,7 @@ class LDACmd {
     }
     else if (lda.documents.size == 0) { System.err.println("You must specific either the --input-dirs or --input-lines options to provide documents."); System.exit(-1) }
     println("\nRead "+lda.documents.size+" documents, "+WordSeqDomain.elementDomain.size+" word types, "+lda.documents.map(_.ws.length).sum+" word tokens.")
-    println(opts.numThreads.value)
+
     // Run inference to discover topics
     if (opts.numIterations.value > 0) {
       val startTime = System.currentTimeMillis
@@ -551,14 +554,18 @@ class LDACmd {
     for(i <- 0 to opts.numTopics.value-1){
       val wordlist =  lda.phis(i).value.top(100).map(dp => lda.wordDomain.category(dp.index))
       pw.write(i.toString())
+      out.write(i.toString())
 
       for(w <- wordlist){
         pw.write(" "+ w)
+        out.write(" "+w)
       }
+      out.write(" "+lda.topictermcount(i).toString())
+      out.write("\n")
       pw.write("\n")
     }
     pw.close()
-
+    out.close()
 
     var alphas: Array[Double]=null
     alphas = Array.fill[Double](numTopics)((lda.alphas.value.massTotal)/numTopics)

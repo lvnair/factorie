@@ -98,7 +98,7 @@ class RecursiveLDA(wordSeqDomain: CategoricalSeqDomain[String], numTopics: Int =
 
 object RecursiveLDA {
   import scala.util.control.Breaks._
-  val minDocLength = 5
+  val minDocLength = 3
 
   def main(args:Array[String]): Unit = {
     var verbose = false
@@ -214,6 +214,7 @@ object RecursiveLDA {
         if (text eq null) throw new Error("No () group for --read-lines-regex in "+line)
         if (opts.readLinesRegexPrint.value) println(text)
         val doc = Document.fromString(WordSeqDomain, name+":"+count, text, segmenter = mySegmenter)
+
         if (doc.length >= minDocLength) lda.addDocument(doc, random)
         count += 1
         if (count % 1000 == 0) { print(" "+count); Console.flush() }; if (count % 10000 == 0) println()
@@ -245,7 +246,7 @@ object RecursiveLDA {
       reader.close()
       lda.maximizePhisAndThetas
     }
-    if (lda.documents.size == 0) { System.err.println("You must specific either the --input-dirs or --input-lines options to provide documents."); System.exit(-1) }
+    else if (lda.documents.size == 0) { System.err.println("You must specific either the --input-dirs or --input-lines options to provide documents."); System.exit(-1) }
     println("\nRead "+lda.documents.size+" documents, "+WordSeqDomain.elementDomain.size+" word types, "+lda.documents.map(_.ws.length).sum+" word tokens.")
 
     //lda.documents.filter(_.name.endsWith("0003.txt")).foreach(d => println(d.toString)) // print example documents
