@@ -12,13 +12,21 @@
    limitations under the License. */
 package cc.factorie.app.nlp.embeddings
 import java.nio.charset.Charset
+
+
 object WordVec {
   def main(args: Array[String]) {
     val opts = new EmbeddingOpts
     opts.parse(args)
     println("Default Charset of this JVM=" + Charset.defaultCharset());
     println("User Provided Charset for this project=" + opts.encoding.value)
-    val wordEmbedding = if (opts.cbow.value == true) new CBOWNegSamplingEmbeddingModel(opts) else new SkipGramNegSamplingEmbeddingModel(opts)
+    val wordEmbedding = opts.options.value match {
+      case 1 => new CBOWNegSamplingEmbeddingModel(opts)
+      case 2 => new SkipGramNegSamplingEmbeddingModel(opts)
+      case 3 => new ParagraphVectorModel(opts)
+      case 4 => new CBOWHSoftMax(opts)
+    }
+
     val st1 = System.currentTimeMillis()
     wordEmbedding.buildVocab()
     val st = System.currentTimeMillis()

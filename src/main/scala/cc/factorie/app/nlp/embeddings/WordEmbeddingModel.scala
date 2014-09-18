@@ -12,10 +12,10 @@
    limitations under the License. */
 package cc.factorie.app.nlp.embeddings
 import cc.factorie.model.{ Parameters, Weights }
-import cc.factorie.optimize.{ Trainer, AdaGradRDA }
+import cc.factorie.optimize.{HogwildTrainer, Trainer, AdaGradRDA}
 import cc.factorie.la.DenseTensor1
 import cc.factorie.util.Threading
-import java.io.{ File, PrintWriter, OutputStreamWriter, FileOutputStream, FileInputStream, BufferedOutputStream }
+import java.io._
 import java.util.zip.{ GZIPOutputStream, GZIPInputStream }
 
 abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
@@ -31,6 +31,7 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
   protected val vocabHashSize = opts.vocabHashSize.value // default value is 20 M. load factor is 0.7. So, Vocab size = 0.7 * 20M = 14M vocab supported which is sufficient enough for large amounts of data
   protected val samplingTableSize = opts.samplingTableSize.value // default value is 100 M
   protected val maxVocabSize = opts.vocabSize.value
+  val hierarchicalSoftMax = opts.hierSoftMax.value
 
   // IO Related
   val corpus = opts.corpus.value // corpus input filename. Code takes cares of .gz extension 
@@ -41,12 +42,19 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
   private val encoding = opts.encoding.value // Default is UTF8
   // data structures
   protected var vocab: VocabBuilder = null
-  protected var trainer: LiteHogwildTrainer = null // modified version of factorie's hogwild trainer for speed by removing logging and other unimportant things. Expose processExample() instead of processExamples()
+  protected var trainer: HogwildTrainer = null // modified version of factorie's hogwild trainer for speed by removing logging and other unimportant things. Expose processExample() instead of processExamples()
   protected var optimizer: AdaGradRDA = null
 
   var weights: Seq[Weights] = null // EMBEDDINGS . Will be initialized in learnEmbeddings() after buildVocab() is called first
   private var train_words: Long = 0 // total # of words in the corpus. Needed to calculate the distribution of the work among threads and seek points of corpus file 
 
+  // used for hierarchical softmax
+  var nodeWeights: Seq[Weights] = null
+  //used for paragraph vectors. Currently paragraph vector dimensionality is set same as word vector
+  var parWeights: Seq[Weights] = null
+  var docNum=0
+
+  val outputPar = opts.outputParagraph.value
   // Component-1
   def buildVocab(): Unit = {
     vocab = new VocabBuilder(vocabHashSize, samplingTableSize, 0.7) // 0.7 is the load factor 
@@ -59,6 +67,7 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
       while (corpusLineItr.hasNext) {
         val line = corpusLineItr.next
         line.stripLineEnd.split(' ').foreach(word => vocab.addWordToVocab(word)) // addWordToVocab() will incr by count. TODO : make this also parallel ? but it is an one time process, next time use load-vocab option
+        docNum+=1
       }
     } else {
       println("Loading Vocab")
@@ -70,12 +79,16 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
     V = vocab.size()
     train_words = vocab.trainWords()
     println("Corpus Stat - Vocab Size :" + V + " Total words (effective) in corpus : " + train_words)
-    // save the vocab if the user provides the filename save-vocab 
+    // save the vocab if the user provides the filename save-vocab
+    if(hierarchicalSoftMax){
+      vocab.buildBinaryTree()
+    }
     if (saveVocabFilename.size != 0) {
       println("Saving Vocab into " + saveVocabFilename)
       vocab.saveVocab(saveVocabFilename, storeInBinary, encoding) // for every word, <word><space><count><newline> 
       println("Done Saving Vocab")
     }
+
 
   }
 
@@ -84,22 +97,40 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
     println("Learning Embeddings")
     optimizer = new AdaGradRDA(delta = adaGradDelta, rate = adaGradRate)
     weights = (0 until V).map(i => Weights(TensorUtils.setToRandom1(new DenseTensor1(D, 0)))) // initialized using wordvec random
+
+    // for hierarchical softmax
+    nodeWeights =  (0 until V).map(i => Weights(TensorUtils.setToRandom1(new DenseTensor1(D, 0))))
+    // set for paragraph vector
+    parWeights =   (0 until docNum).map(i => Weights(TensorUtils.setToRandom1(new DenseTensor1(D, 0))))
     optimizer.initializeWeights(this.parameters)
-    trainer = new LiteHogwildTrainer(weightsSet = this.parameters, optimizer = optimizer, nThreads = threads, maxIterations = Int.MaxValue)
+
+    trainer = new HogwildTrainer(weightsSet = this.parameters, optimizer = optimizer, nThreads = threads, maxIterations = Int.MaxValue)
+
     val threadIds = (0 until threads).map(i => i)
     val fileLen = new File(corpus).length
+    //var word_count: Long = 0
     Threading.parForeach(threadIds, threads)(threadId => workerThread(threadId, fileLen))
+    /*val corpusLineItr =  io.Source.fromFile(corpus,encoding).getLines
+    val printAfterNDoc: Long=100
+    while (corpusLineItr.hasNext) {
+      word_count += process(corpusLineItr.next)
+      docCounter+=1
+      if(printAfterNDoc == 0) println("Progress Documents Processed: " + docCounter  + " %")
+    } */
     println("Done learning embeddings. ")
     //store()
   }
 
   // Component-3
   def store(): Unit = {
-    println("Now, storing the embeddings .... ")
+    println("Now, storing the word embeddings .... ")
     val out = storeInBinary match {
       case 0 => new java.io.PrintWriter(outputFilename, encoding)
       case 1 => new OutputStreamWriter(new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(outputFilename))), encoding)
     }
+
+    val outParVector = new java.io.PrintWriter(outputPar,encoding)
+    println("No of documents "+docNum)
     // format :
     // <vocabsize><space><dim-size><newline>
     // <word>[<space><embedding(word)(d)>]*dim-size<newline>
@@ -113,7 +144,22 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
       out.flush()
     }
     out.close()
-    println("Done storing embeddings")
+    println("Done storing word embeddings")
+
+    println("Store paragraph vectors.....")
+    outParVector.write(docNum+"\n")
+    for(d <- 0 until docNum){
+      outParVector.write(d + " ")
+      val docEmdeddings = parWeights(d).value
+      for(s<- 0 until D){
+        outParVector.write(docEmdeddings(s)+" ")
+      }
+      outParVector.write("\n")
+      outParVector.flush()
+    }
+    outParVector.close()
+
+    println("Done storing paragraph vectors")
   }
 
   protected def workerThread(id: Int, fileLen: Long, printAfterNDoc: Long = 100): Unit = {
@@ -122,10 +168,12 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
     var word_count: Long = 0
     var work = true
     var ndoc = 0
+
     val total_words_per_thread = train_words / threads // worker amount . 
     while (lineItr.hasNext && work) {
-      word_count += process(lineItr.next) // Design choice : should word count be computed here and just expose process(doc : String): Unit ?. 
+      word_count += process(lineItr.next) // Design choice : should word count be computed here and just expose process(doc : String): Unit ?.
       ndoc += 1
+
       if (id == 1 && ndoc % printAfterNDoc == 0) { // print the process after processing 100 docs in 1st thread. It approx reflects the total progress
         println("Progress : " + word_count / total_words_per_thread.toDouble * 100 + " %")
       }

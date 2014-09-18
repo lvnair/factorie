@@ -18,7 +18,7 @@ import scala.math
 import scala.util.{Sorting, Random}
 import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import java.io.{OutputStreamWriter, BufferedOutputStream, FileInputStream, FileOutputStream}
-
+import scala.util.control.Breaks._
 
 class VocabBuilder(vocab_hash_size: Int = 20e6.toInt, sampling_table_size: Int = 1e8.toInt, load_factor: Double = 0.7) {
 
@@ -41,6 +41,9 @@ class VocabBuilder(vocab_hash_size: Int = 20e6.toInt, sampling_table_size: Int =
 
   (0 until vocab_hash_size).foreach(i => vocab_hash(i) = -1)
   (0 until vocab_max_size).foreach(i => vocab(i) = null)
+
+  // huffman tree parameters
+  var max_code_length = 40
 
   def size(): Int = vocab_size
   def trainWords(): Long = {
@@ -114,6 +117,8 @@ class VocabBuilder(vocab_hash_size: Int = 20e6.toInt, sampling_table_size: Int =
   // step-2 : removes the stop-words - stops words from factorie and word length should be greater than 1. Will ignore punctutations
   // step-3 : if vocab_size > max_vocab_size, then only take max_vocab_size 
   def sortVocab(min_count: Int = 5, ignoreStopWords: Int = 0, max_vocab_size: Int = 2e6.toInt): Unit = {
+    println("Intermediate vocab size "+vocab_size)
+    println(min_count)
     for (a <- vocab_size until vocab.size) vocab(a) = null
     vocab = vocab.filter(ele => (ele != null && ele.cn >= min_count)).sortWith((x, y) => y.cn < x.cn)
     if (ignoreStopWords == 1) {
@@ -132,7 +137,7 @@ class VocabBuilder(vocab_hash_size: Int = 20e6.toInt, sampling_table_size: Int =
       case 1 => new OutputStreamWriter(new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(filename))), encoding)
     }
     for (i <- 0 until vocab_size) {
-      out.write(vocab(i).wrd + " " + vocab(i).cn + "\n") // format : <word><space><count><newline>. TODO : JSON/XML in future ?
+      out.write(vocab(i).wrd + " " + vocab(i).cn +" "+vocab(i).code.take(vocab(i).codelen).mkString(" ") +"\t" +vocab(i).point.take(vocab(i).codelen).mkString(" ")+"\n") // format : <word><space><count><newline>. TODO : JSON/XML in future ?
       assert(i == getId(vocab(i).wrd))
       out.flush()
     }
@@ -149,7 +154,7 @@ class VocabBuilder(vocab_hash_size: Int = 20e6.toInt, sampling_table_size: Int =
     }
     for (line <- in) {
       val wordCntdetail = line.stripLineEnd.split(' ')
-      assert(wordCntdetail.size == 2)
+      //assert(wordCntdetail.size == 2)
       val word = wordCntdetail(0)
       val cnt = wordCntdetail(1).toInt
       addWordToVocab(word)
@@ -200,6 +205,83 @@ class VocabBuilder(vocab_hash_size: Int = 20e6.toInt, sampling_table_size: Int =
 
   // TODO huffman encoding for Hierarchical SoftMax: def BuildBinaryTree = { } 
 
+  def buildBinaryTree(){
+
+    var vocab_counts = new Array[Long](vocab_size * 2 + 1)
+    var binary = new Array[Int](vocab_size * 2 + 1)
+    var parent_node = new Array[Int](vocab_size * 2 + 1)
+    var code = new Array[Int](max_code_length)
+    var point = new Array[Int](max_code_length)
+    for(c <- 0 until vocab_size) vocab_counts(c)=vocab(c).cn
+    for(c <- vocab_size until vocab_size * 2 ) vocab_counts(c) = 1e15.toLong
+    var pos1 = vocab_size - 1
+    var pos2 = vocab_size
+
+    var min1i = -1
+    var min2i = -1
+    for(a <- 0 until vocab_size - 1){
+      if( pos1 >= 0 ){
+        if(vocab_counts(pos1) < vocab_counts(pos2)){
+          min1i = pos1
+          pos1 -= 1
+        }
+        else{
+          min1i = pos2
+          pos2 += 1
+        }
+      }
+      else{
+        min1i = pos2
+        pos2 += 1
+      }
+
+      if(pos1 >= 0){
+        if(vocab_counts(pos1) < vocab_counts(pos2)){
+          min2i = pos1
+          pos1 -= 1
+        }
+        else{
+          min2i=pos2
+          pos2 += 1
+        }
+
+      }
+      else{
+        min2i = pos2
+        pos2 += 1
+      }
+
+      vocab_counts(vocab_size + a) = vocab_counts(min1i) + vocab_counts(min2i)
+      parent_node(min1i) = vocab_size + a
+      parent_node(min2i) = vocab_size + a
+      binary(min2i) = 1
+
+
+    }
+
+    // assign binary code to vocab
+    for(a <- 0 until vocab_size){
+      var b = a
+      var i = 0
+      breakable {while(true){
+        code(i) = binary(b)
+        point(i) = b
+        i += 1
+        b = parent_node(b)
+        if(b == vocab_size * 2 - 2) break
+      } }
+      vocab(a).codelen = i
+      vocab(a).point(0) = vocab_size - 2
+      for(b <- 0 until i){
+        vocab(a).code(i - b - 1) = code(b)
+        vocab(a).point(i - b) = point(b) - vocab_size
+      }
+
+    }
+
+
+  }
+
   // helper functions 
   // reduce_vocab is hacky function which makes sure vocab can handle any kind of streamming words
   private def reduce_vocab(min_reduce: Int): Unit = {
@@ -234,10 +316,25 @@ class VocabBuilder(vocab_hash_size: Int = 20e6.toInt, sampling_table_size: Int =
     }
   }
 
+  def getCode(id: Int): Array[Int] = {
+    vocab(id).code
+  }
+
+  def getCodelength(id: Int): Int = {
+    vocab(id).codelen
+  }
+
+  def getPoint(id: Int): Array[Int] = {
+    vocab(id).point
+  }
+
 }
 
-class vocab_word(cnt: Int = 0, w: String) {
+class vocab_word(cnt: Int = 0, w: String, cd: Array[Int]=new Array[Int](40), clen:Int=0 ,pt: Array[Int] = new Array[Int](40)) {
   var cn = cnt
   var wrd = w
+  var code = cd
+  var codelen = clen
+  var point = pt
   override def toString() = "( " + cn + ", " + wrd + " ) "
 }
