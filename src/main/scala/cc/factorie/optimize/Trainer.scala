@@ -339,7 +339,7 @@ class HogwildTrainer(val weightsSet: WeightsSet, val optimizer: GradientOptimize
   var accumulatedValue = 0.0
   var t0 = System.currentTimeMillis()
   val lock = new util.RWLock
-  private def processExample(e: Example): Unit = {
+   def processExample(e: Example): Unit = {
     val gradientAccumulator = new SmartGradientAccumulator
     val value = new LocalDoubleAccumulator()
     e.accumulateValueAndGradient(value, gradientAccumulator)
