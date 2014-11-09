@@ -25,6 +25,7 @@ object WordVec {
       case 2 => new SkipGramNegSamplingEmbeddingModel(opts)
       case 3 => new ParagraphVectorModel(opts)
       case 4 => new CBOWHSoftMax(opts)
+      case 5 => new ParagraphFrequencyVectorModel(opts)
     }
 
     val st1 = System.currentTimeMillis()

@@ -38,6 +38,7 @@ object DocDocDistance {
     //D = details(1)
     //docNum=  lineItr.next.stripLineEnd.toInt
     println("docs "+docNum)
+    lineItr.next
     docs = new Array[String](docNum)
     weights = new Array[DenseTensor1](docNum)
     for (v <- 0 until docNum) {
@@ -60,11 +61,15 @@ object DocDocDistance {
       } else {
         val embedding_in = new DenseTensor1(D, 0)
         words.foreach(word => embedding_in.+=(weights(word)))
+
         embedding_in./=(words.size)
         var pq = new PriorityQueue[(String, Double)]()(dis)
+        //println(docs.size)
         for (i <- 0 until docs.size) {
           val embedding_out = weights(i)
           val score = TensorUtils.cosineDistance(embedding_in, embedding_out)
+          //println(score)
+          //println(score)
           if (i < top) pq.enqueue(docs(i) -> score)
           else if (score > pq.head._2) { // if the score is greater the min, then add to the heap
             pq.dequeue

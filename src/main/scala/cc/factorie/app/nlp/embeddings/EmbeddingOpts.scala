@@ -25,7 +25,7 @@ class EmbeddingOpts extends CmdOptions {
   val cbow = new CmdOption("cbow", false, "BOOLEAN", "user cbow=true for cbow and cbow=false for skip-gram") // 1 would be SkipGram // default method is skipgram
   val sample = new CmdOption("sample", 0.001, "DOUBLE", "use <double> subsampling")
   val hierSoftMax = new CmdOption("hier-soft-max", true, "BOOLEAN", "true if hierarchical softmax is used for training, else use negative sampling")
-  val options = new CmdOption("options", 3, "INT", "1-CBOW, 2- SKIP-GRAM, 3-PARAGRAPH VECTOR")
+  val options = new CmdOption("options", 5, "INT", "1-CBOW, 2- SKIP-GRAM, 3-PARAGRAPH VECTOR")
 
   // Optimization related (Don't change if you do not understand how vectors are initialized)
   val rate = new CmdOption("rate", 0.025, "DOUBLE", "learning rate for adaGrad")

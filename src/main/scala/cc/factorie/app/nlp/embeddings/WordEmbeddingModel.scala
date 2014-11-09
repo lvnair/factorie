@@ -42,7 +42,7 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
   private val encoding = opts.encoding.value // Default is UTF8
   // data structures
   protected var vocab: VocabBuilder = null
-  protected var trainer: HogwildTrainer = null // modified version of factorie's hogwild trainer for speed by removing logging and other unimportant things. Expose processExample() instead of processExamples()
+  protected var trainer: LiteHogwildTrainer = null // modified version of factorie's hogwild trainer for speed by removing logging and other unimportant things. Expose processExample() instead of processExamples()
   protected var optimizer: AdaGradRDA = null
 
   var weights: Seq[Weights] = null // EMBEDDINGS . Will be initialized in learnEmbeddings() after buildVocab() is called first
@@ -97,19 +97,30 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
     println("Learning Embeddings")
     optimizer = new AdaGradRDA(delta = adaGradDelta, rate = adaGradRate)
     weights = (0 until V).map(i => Weights(TensorUtils.setToRandom1(new DenseTensor1(D, 0)))) // initialized using wordvec random
-
     // for hierarchical softmax
     nodeWeights =  (0 until V).map(i => Weights(TensorUtils.setToRandom1(new DenseTensor1(D, 0))))
     // set for paragraph vector
     parWeights =   (0 until docNum).map(i => Weights(TensorUtils.setToRandom1(new DenseTensor1(D, 0))))
     optimizer.initializeWeights(this.parameters)
+    trainer = new LiteHogwildTrainer(weightsSet = this.parameters, optimizer = optimizer, nThreads = threads, maxIterations = Int.MaxValue)
 
-    trainer = new HogwildTrainer(weightsSet = this.parameters, optimizer = optimizer, nThreads = threads, maxIterations = Int.MaxValue)
+
+
+
+    //for(i<- 0 until 5){
+        //println("Starting iteration "+i)
+
 
     val threadIds = (0 until threads).map(i => i)
     val fileLen = new File(corpus).length
-    //var word_count: Long = 0
-    Threading.parForeach(threadIds, threads)(threadId => workerThread(threadId, fileLen))
+        //var word_count: Long = 0
+    for(i<- 0 until 20){
+          println("Iteration "+i)
+          Threading.parForeach(threadIds, threads)(threadId => workerThread(threadId, fileLen))
+    }
+      //println("Finished iteration "+i)
+
+    //}
     /*val corpusLineItr =  io.Source.fromFile(corpus,encoding).getLines
     val printAfterNDoc: Long=100
     while (corpusLineItr.hasNext) {
@@ -163,6 +174,8 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
   }
 
   protected def workerThread(id: Int, fileLen: Long, printAfterNDoc: Long = 100): Unit = {
+
+    //println("Starting thread ...."+id)
     val skipBytes: Long = fileLen / threads * id // fileLen now pre-computed before pasing to all threads. skip bytes. skipped bytes is done by other workers
     val lineItr = new FastLineReader(corpus, skipBytes, encoding)
     var word_count: Long = 0
@@ -179,6 +192,7 @@ abstract class WordEmbeddingModel(val opts: EmbeddingOpts) extends Parameters {
       }
       if (word_count > total_words_per_thread) work = false // Once, word_count reaches this limit, ask worker to end
     }
+    //println("Finished thread "+id+" with word count "+word_count)
   }
 
   // override this function in your Embedding Model like SkipGramEmbedding or CBOWEmbedding

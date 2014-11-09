@@ -89,13 +89,12 @@ object TensorUtils {
     t
   }
   def setToRandom2(t : DenseTensor2): DenseTensor2 = {
-      val V = t.dim1
-      val D = t.dim2
-      for (v <- 0 until V)
-        for (d <- 0 until D) 
-          t(v,d) = (rng.nextInt(Int.MaxValue) / (Int.MaxValue - 1).toDouble) / D
-      t
+    val V = t.dim1
+    val D = t.dim2
+    for (v <- 0 until V)
+      for (d <- 0 until D)
+        t(v,d) = (rng.nextInt(Int.MaxValue) / (Int.MaxValue - 1).toDouble) / D
+    t
   }
 
 }
-
